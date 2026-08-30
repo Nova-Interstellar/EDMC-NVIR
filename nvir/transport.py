@@ -60,12 +60,12 @@ class ApiTransport:
             self._session.close()
             self._session = None
 
-    def url_for(self, category: str) -> str:
-        base = self._settings.base_url_for(category).rstrip("/")
+    def url(self) -> str:
+        base = self._settings.base_url().rstrip("/")
         return base + API_EVENTS_PATH if base else ""
 
     def target(self) -> str:
-        base = self._settings.base_url_for("")
+        base = self._settings.base_url()
         if not base:
             return "no API URL configured"
         return base + " (localhost)" if self._settings.is_local() else base
@@ -75,7 +75,7 @@ class ApiTransport:
         return bool(self._settings.api_token_value)
 
     def send(self, payload: dict) -> Delivery:
-        url = self.url_for(payload.get("category", ""))
+        url = self.url()
         if not url:
             return Delivery(False, detail="No API URL configured")
 

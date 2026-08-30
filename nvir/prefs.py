@@ -12,6 +12,7 @@ returned from here — including an error frame — must be an `nb.Frame`.
 
 import tkinter as tk
 import webbrowser
+from tkinter import font as tkfont
 from tkinter import ttk
 
 import myNotebook as nb  # type: ignore
@@ -31,6 +32,7 @@ class PreferencesUI:
         self._settings = settings
         self._checker = checker
         self._category_boxes = {}
+        self._bold = None
         self._debug_widgets = []
         self._localhost_entry = None
         self._version_link = None
@@ -93,22 +95,39 @@ class PreferencesUI:
         return row + 1
 
     def _broadcast_section(self, frame, row: int) -> int:
-        nb.Label(frame, text="Broadcast").grid(
+        """
+        A titled block, then one checkbox per channel, two to a row.
+
+        Each channel is a single toggle now: CQC rank-ups ride along with
+        combat, and there is nothing else beneath any of them. Adding a channel
+        is one entry in events.CATEGORIES, not a layout change.
+        """
+        nb.Label(frame, text="Broadcast", font=self._heading_font()).grid(
             row=row, column=0, columnspan=2, sticky=tk.W, **PAD
         )
         row += 1
 
-        for key in events.CATEGORY_ORDER:
-            box = nb.Checkbutton(
-                frame,
-                text=events.CATEGORIES[key],
-                variable=self._settings.categories[key],
-            )
-            box.grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=26, pady=1)
-            self._category_boxes[key] = box
-            row += 1
+        grid = nb.Frame(frame)
+        grid.grid(row=row, column=0, columnspan=2, sticky=tk.EW, padx=26, pady=(2, 4))
+        grid.columnconfigure(0, weight=1, uniform="broadcast")
+        grid.columnconfigure(1, weight=1, uniform="broadcast")
 
-        return row
+        for index, category in enumerate(events.CATEGORY_ORDER):
+            box = nb.Checkbutton(
+                grid,
+                text=events.label_of(category),
+                variable=self._settings.categories[category],
+            )
+            box.grid(
+                row=index // 2,
+                column=index % 2,
+                sticky=tk.W,
+                padx=(0, 12),
+                pady=1,
+            )
+            self._category_boxes[category] = box
+
+        return row + 1
 
     def _debug_section(self, frame, row: int) -> int:
         """Development tools. Built only in a DEBUG build."""
@@ -140,6 +159,14 @@ class PreferencesUI:
         self._debug_widgets = [localhost_box, self._localhost_entry]
 
         return row + 1
+
+    def _heading_font(self):
+        """Bold copy of the default label font, resolved once."""
+        if self._bold is None:
+            base = tkfont.nametofont("TkDefaultFont")
+            self._bold = tkfont.Font(font=base)
+            self._bold.configure(weight="bold")
+        return self._bold
 
     @staticmethod
     def _rule(frame, row: int) -> int:
@@ -174,7 +201,7 @@ class PreferencesUI:
 
     def _sync_enabled(self) -> None:
         """
-        Stealth mode locks the category choices without clearing them; the
+        Stealth mode locks every broadcast toggle without clearing it; the
         localhost row follows Debug mode, and its field follows its own box.
         """
         state = tk.DISABLED if self._settings.is_stealthed() else tk.NORMAL

@@ -178,24 +178,20 @@ class DebugWindow(tk.Toplevel):
         self._entry_text.insert("1.0", json.dumps(sample, indent=2))
 
     def _destination(self) -> str:
-        """Where this event would go: category override, debug URL, default."""
-        spec = events.spec_for(self._event.get())
-        category = spec.category if spec else ""
-        return (
-            self._controller.sender.transport.url_for(category)
-            or "no API URL set"
-        )
+        return self._controller.sender.transport.url() or "no API URL set"
 
     def _refresh_target(self) -> None:
         self._target.configure(text=self._destination())
 
-    def _build_payload(self):
+    def _build_payloads(self, quiet: bool = False):
+        """Zero or more payloads, exactly as a live journal entry would make."""
         raw = self._entry_text.get("1.0", tk.END).strip()
         try:
             entry = json.loads(raw)
         except json.JSONDecodeError as err:
-            self._write("Journal fields are not valid JSON:\n{0}".format(err))
-            return None
+            if not quiet:
+                self._write("Journal fields are not valid JSON:\n{0}".format(err))
+            return []
 
         entry.setdefault("event", self._event.get())
         entry.setdefault("timestamp", payload.utc_now())
@@ -209,32 +205,41 @@ class DebugWindow(tk.Toplevel):
             test=True,
         )
 
-        if built is None:
+        if not built and not quiet:
             self._write(
-                "Nothing to send: {0} is not registered, or its extractor "
-                "rejected these fields.".format(entry.get("event"))
+                "Nothing to send: {0} is not registered, its extractor "
+                "rejected these fields, or nothing here maps to a "
+                "channel.".format(entry.get("event"))
             )
         return built
 
     def _preview(self) -> None:
-        built = self._build_payload()
-        if built is None:
+        built = self._build_payloads()
+        if not built:
             return
-        self._write(
-            "POST {0}\n\nPAYLOAD\n{1}".format(
-                self._destination(), json.dumps(built, indent=2)
+
+        blocks = []
+        for item in built:
+            blocks.append(
+                "POST {0}\n[{1}]\n{2}".format(
+                    self._destination(),
+                    item["category"],
+                    json.dumps(item, indent=2),
+                )
             )
-        )
+        header = "" if len(built) == 1 else "{0} payloads\n\n".format(len(built))
+        self._write(header + "\n\n".join(blocks))
 
     def _send(self) -> None:
-        built = self._build_payload()
-        if built is None:
+        built = self._build_payloads()
+        if not built:
             return
 
         self._refresh_target()
-        self._write("Sending {0}\N{HORIZONTAL ELLIPSIS}".format(built["event"]))
-        logger.info("Debug send: %s", built["event"])
-        self._controller.sender.submit(built, on_result=self._on_result)
+        self._write("Sending {0} payload(s)…".format(len(built)))
+        for item in built:
+            logger.info("Debug send: %s (%s)", item["event"], item["category"])
+            self._controller.sender.submit(item, on_result=self._on_result)
 
     def _on_result(self, result) -> None:
         # Runs on the delivery thread; hop back before touching any widget.

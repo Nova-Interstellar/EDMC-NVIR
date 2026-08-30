@@ -22,7 +22,7 @@ from .config import (
     KEY_STEALTH,
     KEY_USE_LOCALHOST,
     RETIRED_KEYS,
-    squadron_url_for,
+    squadron_url,
 )
 from .log import logger
 
@@ -33,6 +33,7 @@ class Settings:
     def __init__(self):
         self.api_token = tk.StringVar()
         self.stealth = tk.BooleanVar()
+        # One toggle per channel.
         self.categories = {key: tk.BooleanVar() for key in events.CATEGORIES}
 
         # Development only; ignored unless DEBUG is on in config.py.
@@ -108,9 +109,9 @@ class Settings:
         """Whether events are being redirected to a local site."""
         return bool(self.is_debug() and self.use_localhost_value)
 
-    def base_url_for(self, category: str) -> str:
+    def base_url(self) -> str:
         """
-        Where this category's events go.
+        Where events go.
 
         The localhost redirect wins over everything while DEBUG is on, so a
         development build cannot accidentally post into the live feed. A
@@ -119,7 +120,7 @@ class Settings:
         """
         if self.is_local():
             return self.localhost_url_value or DEFAULT_LOCALHOST_URL
-        return squadron_url_for(category)
+        return squadron_url()
 
     def is_stealthed(self) -> bool:
         return bool(self.stealth.get())

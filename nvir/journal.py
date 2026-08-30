@@ -61,9 +61,6 @@ class Journal:
         if spec is None:
             return
 
-        if not self._settings.is_category_enabled(spec.category):
-            return
-
         # CarrierJump fires for everyone docked aboard, so without this a
         # passenger would announce somebody else's carrier as their own.
         if event_name == "CarrierJump":
@@ -72,12 +69,20 @@ class Journal:
                 logger.debug("Ignoring CarrierJump for a carrier we do not own")
                 return
 
-        built = payload.build(cmdr, event_name, entry, system, station)
-        if built is None:
+        # Nothing this event could reach is switched on, so do not build it.
+        if not any(
+            self._settings.is_category_enabled(category)
+            for category in spec.categories()
+        ):
             return
 
-        logger.info("Queued %s for %s", event_name, cmdr)
-        self._sender.submit(built, on_result=self._record)
+        for built in payload.build(cmdr, event_name, entry, system, station):
+            # Re-checked per payload: one Promotion can post the rank-up a
+            # commander shares and drop another they do not.
+            if not self._settings.is_category_enabled(built["category"]):
+                continue
+            logger.info("Queued %s (%s) for %s", event_name, built["category"], cmdr)
+            self._sender.submit(built, on_result=self._record)
 
     def _record(self, result) -> None:
         self._last_result = result.detail

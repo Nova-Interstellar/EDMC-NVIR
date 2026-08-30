@@ -47,21 +47,6 @@ API_BASE_URL = "https://nvir.vercel.app"
 
 API_EVENTS_PATH = "/api/squadron/events"
 
-# Per-category endpoint overrides. Blank means API_BASE_URL. These exist for
-# pointing a category at a different deployment; routing a category to a
-# different Discord *channel* is done on the site, not here.
-CATEGORY_API_URLS = {
-    "trade": "",
-    "combat": "",
-    "exploration": "",
-    "exobiology": "",
-    "milestones": "",
-    "carrier": "",
-}
-
-# Prefilled into the debug section's localhost field the first time DEBUG runs.
-# Nothing points here unless "Use localhost" is ticked in preferences, so the
-# URL no longer has to be commented in and out of source to switch.
 DEFAULT_LOCALHOST_URL = "http://localhost:3000"
 
 USER_AGENT = f"EDMC-NVIR/{PLUGIN_VERSION}"
@@ -96,6 +81,17 @@ KEY_LOCALHOST_URL = "nvir_localhost_url"
 # endpoint lingers in a member's EDMC config.
 RETIRED_KEYS = (
     "nvir_webhook_url",
+    "nvir_option_trade.sales",
+    "nvir_option_trade.ranks",
+    "nvir_option_combat.vouchers",
+    "nvir_option_combat.ranks",
+    "nvir_option_combat.cqc",
+    "nvir_option_exploration.sales",
+    "nvir_option_exploration.ranks",
+    "nvir_option_exobiology.sales",
+    "nvir_option_exobiology.ranks",
+    "nvir_option_mercenary.ranks",
+    "nvir_option_carrier.jumps",
     "nvir_api_url",
     "nvir_api_url_debug",
     "nvir_api_url_trade",
@@ -107,12 +103,12 @@ RETIRED_KEYS = (
 )
 
 
-def squadron_url_for(category: str) -> str:
+def squadron_url() -> str:
     """
-    The live endpoint for a category: its override, else the shared base URL.
+    The live endpoint.
 
     A debug send goes here too. `test` on the payload tells the site to post it
     to the debug Discord channel; it does not change where the plugin posts.
     Redirecting the plugin itself is what the localhost toggle is for.
     """
-    return CATEGORY_API_URLS.get(category) or API_BASE_URL
+    return API_BASE_URL

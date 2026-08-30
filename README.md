@@ -1,8 +1,7 @@
 # EDMC-NVIR-Uplink
 
-Squadron feed for **Nova Interstellar**. Posts your notable moments — big
-trades, bounties, exploration and exobiology payouts, rank-ups, carrier jumps —
-to the squadron Discord, automatically, while you fly.
+Squadron feed for **Nova Interstellar**. Posts your rank-ups and fleet carrier
+jumps to the squadron Discord, automatically, while you fly.
 
 Only the events listed below are ever read, and only the details each one needs
 are ever sent. Nothing else leaves your machine.
@@ -45,22 +44,21 @@ download the latest.
 
 ## What gets posted
 
-| Category | Posted when you… |
+| Channel | You get a post when you… |
 | --- | --- |
-| **Trade** | Sell cargo at a good profit |
-| **Combat** | Cash in bounty vouchers or combat bonds |
-| **Exploration** | Sell exploration data at Universal Cartographics |
-| **Exobiology** | Sell samples at Vista Genomics |
-| **Milestones** | Earn a rank promotion, or collect a community goal reward |
+| **Trade** | Gain a Trade rank |
+| **Combat** | Gain a Combat or CQC rank |
+| **Exploration** | Gain an Explorer rank |
+| **Exobiology** | Gain an Exobiologist rank |
+| **Mercenary** | Gain a Mercenary rank |
 | **Fleet Carrier** | Schedule, cancel, or complete a carrier jump |
 
-Small payouts are filtered out so the channel stays worth reading. The squadron
-site decides the thresholds, so they can be tuned without you updating anything.
+One checkbox per channel. CQC rank-ups go out with your Combat rank, since
+both are fighting. Federal and Imperial navy ranks are not carried at all, and
+nothing about trading, bounties or selling data is sent.
 
-A couple of details worth knowing:
+Two details worth knowing:
 
-- **Trade posts your profit, not the sale price.** Selling 200M of cargo you
-  paid 190M for reads as 10M, which is what you actually made.
 - **Carrier jumps only post for your own carrier.** The game tells the plugin
   about a jump even when you are just a passenger aboard someone else's; those
   are ignored.
@@ -79,10 +77,7 @@ nothing you send is posted; tell an officer and they can add a mapping.
 ## Troubleshooting
 
 **Nothing is posting.** Check the token in **File → Settings → NVIR Uplink**, and that
-Stealth mode is off and the category is ticked. Remember the thresholds: a small
-sale is filtered out on purpose.
-
-**A payout was ignored.** It was probably under the threshold for its category.
+Stealth mode is off and the box for that channel is ticked.
 
 **Something looks wrong.** EDMC's log has the detail —
 **File → Settings → Plugins → Open Log Folder**, and search for `NVIR`.

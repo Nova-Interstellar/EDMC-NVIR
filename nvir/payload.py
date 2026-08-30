@@ -1,15 +1,17 @@
 """
-Builds the normalised event that every transport carries.
+Builds the normalised events the transport carries.
 
-This shape is the seam between the plugin and nova-web: the Discord transport
-renders it locally today, and the API transport will hand exactly the same
-object to the site later. Keeping the two identical is what makes switching a
-one-line change.
+One journal entry can produce several payloads — a Promotion carrying two
+careers becomes two, each with its own nonce so it routes and retries alone.
+This shape is the seam between the plugin and nova-web.
+
+No payload carries a credit amount: nothing here is a market sale, so there is
+nothing to measure against a threshold.
 """
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from . import events
 from .config import PLUGIN_VERSION
@@ -26,35 +28,45 @@ def build(
     system: Optional[str] = None,
     station: Optional[str] = None,
     test: bool = False,
-) -> Optional[dict]:
+) -> List[dict]:
     """
-    Normalise a raw journal entry into the payload the transports send.
+    Normalise a raw journal entry into zero or more payloads.
 
-    Returns None when the event is not registered, or when its extractor
-    decides this particular occurrence is not worth broadcasting.
+    Returns an empty list when the event is not registered, when its extractor
+    declines the occurrence, or when a produced item maps to no channel — a
+    Federation rank-up, say, which the squadron does not carry.
     """
     spec = events.spec_for(event_name)
     if spec is None:
-        return None
+        return []
 
-    data = spec.extract(entry)
-    if data is None:
-        return None
+    extracted = spec.extract(entry)
+    if not extracted:
+        return []
 
-    amount = data.get(spec.amount_field) if spec.amount_field else None
+    stamped = entry.get("timestamp") or utc_now()
+    built = []
 
-    return {
-        "v": 1,
-        "plugin": PLUGIN_VERSION,
-        "cmdr": cmdr,
-        "event": event_name,
-        "category": spec.category,
-        "at": entry.get("timestamp") or utc_now(),
-        # Lets the receiver drop a duplicate if a retry lands twice.
-        "nonce": uuid.uuid4().hex,
-        "system": system or entry.get("StarSystem") or "",
-        "station": station or "",
-        "amount": amount,
-        "data": data,
-        "test": bool(test),
-    }
+    for data in extracted:
+        category = spec.category_for(data)
+        if category is None:
+            continue
+
+        built.append({
+            "v": 1,
+            "plugin": PLUGIN_VERSION,
+            "cmdr": cmdr,
+            "event": event_name,
+            # The channel this belongs to. The API re-derives it rather than
+            # trusting us; this travels for logging and the debug panel.
+            "category": category,
+            "at": stamped,
+            # Lets the receiver drop a duplicate if a retry lands twice.
+            "nonce": uuid.uuid4().hex,
+            "system": system or entry.get("StarSystem") or "",
+            "station": station or "",
+            "data": data,
+            "test": bool(test),
+        })
+
+    return built

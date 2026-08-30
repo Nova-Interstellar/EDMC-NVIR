@@ -15,7 +15,7 @@ journal_entry (EDMC main thread)
       └─ payload.py    normalise to the wire shape
           └─ sender.py     queue, hand to the delivery thread
               └─ transport.py  POST to nova-web
-                                  └─ roster, thresholds, embed, Discord
+                                  └─ roster, routing, embed, Discord
 ```
 
 Nothing blocks EDMC's main thread: `journal_entry` only enqueues.
@@ -56,15 +56,22 @@ Add one `EventSpec` to `events.py`:
 ```python
 EventSpec(
     event="ShipyardBuy",
-    category="milestones",
-    extract=_extract_shipyard_buy,
-    amount_field="price",
+    category="trade",                  # must exist in events.CATEGORIES
+    extract=_extract_shipyard_buy,     # returns a LIST of data dicts
     sample={"ShipType": "mandalay", "ShipPrice": 27452400},
 )
 ```
 
-Extraction, the preferences checkboxes and the debug form all read from that
-one entry, so there is no second list to update.
+`CATEGORIES` maps a channel to its checkbox label, so declaring the channel is
+what creates the checkbox, picks the destination, and gates the send.
+Extraction, the preferences grid and the debug form all read from that one
+table, so there is no second list to update.
+
+An extractor returns a **list**, so one journal entry can become several
+payloads. `Promotion` uses this: each career is its own payload with its own
+nonce, routed and retried alone. Its `category` is a function of the data
+rather than a constant — the one event whose destination depends on its
+contents.
 
 Then add the event to `FEED_EVENTS` in nova-web's
 `src/data/internal/authored/squadron-feed.ts` and give it a describer in
@@ -77,7 +84,7 @@ but are a different activity.
 
 ## Why the wording lives on the server
 
-`events.py` carries no copy, colours or thresholds. nova-web renders the embed,
+`events.py` carries no copy or colours. nova-web renders the embed,
 so changing what the feed says is a deploy rather than every member updating
 their plugin — and there is only one implementation of each sentence.
 
@@ -106,33 +113,22 @@ carrier is identified by `MarketID`, and `StationName` is the callsign.
 via `CarrierStats`, `CarrierBuy` or `CarrierJumpRequest`. The site re-checks
 against the roster's carrier callsigns, since the plugin cannot be trusted.
 
-**`SellOrganicData` has no total.** It must be summed across `BioData`, adding
-`Value` and `Bonus` per sample.
-
-**`MarketSell` reports gross.** Profit is `TotalSale − AvgPricePaid × Count`.
-
-**`MultiSellExplorationData` is a different shape** from
-`SellExplorationData` — `Discovered[]` of `{SystemName, NumBodies}` against a
-flat `Systems[]`. It is also the common case; a plugin that only handles the
-singular one misses most exploration sales.
-
 ## Endpoints
 
 `config.py` holds them. Members never type a URL — an endpoint is squadron
 infrastructure, not a preference.
 
 - `API_BASE_URL` — where events go (`https://nvir.vercel.app`).
-- `CATEGORY_API_URLS` — per-category override, for pointing a category at a
-  different *deployment*. Routing a category to a different Discord *channel* is
-  done on the site, in `src/constants/squadron-channels.ts`.
+- Channel routing is decided on the site, not here: `FEED_EVENT_CHANNELS` and
+  `PROMOTION_CHANNELS` in `src/data/internal/authored/squadron-feed.ts`, with
+  the webhook URLs themselves in Vercel Global Config.
 - `DEFAULT_LOCALHOST_URL` — prefilled into the debug section's field.
 
 Resolution order, in `Settings.base_url_for`:
 
 1. **Localhost redirect**, if both debug gates and Use localhost are on. Beats
    everything, so a development build cannot post into the live feed.
-2. The category's entry in `CATEGORY_API_URLS`, if set.
-3. `API_BASE_URL`.
+2. `API_BASE_URL`.
 
 A build shipped with `DEBUG = False` ignores a stored localhost redirect
 entirely, so a developer's setting cannot follow the plugin to a member. See
@@ -203,12 +199,12 @@ Ship a release build with `DEBUG = False`.
 {
   "v": 1, "plugin": "0.4.0",
   "cmdr": "Elias Korben",
-  "event": "SellOrganicData", "category": "exobiology",
+  "event": "Promotion",
+  "category": "exploration",
   "at": "2026-08-30T18:04:11Z",
   "nonce": "3f2a…",
   "system": "Shinrarta Dezhra", "station": "Jameson Memorial",
-  "amount": 38021300,
-  "data": { "count": 2, "total": 38021300, "best": "Stratum Tectonicas" },
+  "data": { "career": "Explore", "careerLabel": "Exploration", "rank": "Elite" },
   "test": false
 }
 ```
