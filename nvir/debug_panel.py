@@ -73,8 +73,8 @@ class AppPanel:
         if settings.is_stealthed():
             return "Stealth"
         if settings.is_local():
-            return "Ready (localhost)"
-        return "Ready"
+            return "Online (Local)"
+        return "Online"
 
     def set_status(self, text: str) -> None:
         if self._status is not None:
