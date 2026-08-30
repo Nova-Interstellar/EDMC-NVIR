@@ -1,4 +1,4 @@
-# EDMC-NVIR
+# EDMC-NVIR-Uplink
 
 Squadron feed for **Nova Interstellar**. Posts your notable moments — big
 trades, bounties, exploration and exobiology payouts, rank-ups, carrier jumps —
@@ -9,17 +9,17 @@ are ever sent. Nothing else leaves your machine.
 
 ## Install
 
-1. Download the plugin and unzip it into EDMC's plugin folder as `EDMC-NVIR`:
+1. Download the plugin and unzip it into EDMC's plugin folder:
 
    ```
-   %LOCALAPPDATA%\EDMarketConnector\plugins\EDMC-NVIR
+   %LOCALAPPDATA%\EDMarketConnector\plugins\EDMC-NVIR-Uplink
    ```
 
    In EDMC you can get there with **File → Settings → Plugins → Open**.
 
 2. Restart EDMC.
-3. Open **File → Settings → NVIR** and paste the squadron token. Ask a squadron
-   officer for it.
+3. Open **File → Settings → NVIR Uplink** and paste the squadron token. Ask a
+   squadron officer for it.
 
 That is the whole setup. There is no URL to configure — the plugin already
 knows where to send things.
@@ -28,7 +28,7 @@ Requires EDMC 6.x.
 
 ## Settings
 
-**File → Settings → NVIR**
+**File → Settings → NVIR Uplink**
 
 | Setting | What it does |
 | --- | --- |
@@ -78,7 +78,7 @@ nothing you send is posted; tell an officer and they can add a mapping.
 
 ## Troubleshooting
 
-**Nothing is posting.** Check the token in **File → Settings → NVIR**, and that
+**Nothing is posting.** Check the token in **File → Settings → NVIR Uplink**, and that
 Stealth mode is off and the category is ticked. Remember the thresholds: a small
 sale is filtered out on purpose.
 

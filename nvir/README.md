@@ -1,4 +1,4 @@
-# EDMC-NVIR internals
+# EDMC-NVIR-Uplink internals
 
 Developer notes for the plugin package. End-user install and settings are in
 the [root README](../README.md).
@@ -33,6 +33,21 @@ Nothing blocks EDMC's main thread: `journal_entry` only enqueues.
 | `prefs.py` | Settings tab |
 | `debug_panel.py` | Main-window row and the debug window |
 | `log.py` | Logger wired into EDMC's tree |
+| `link-to-edmc.bat` | Links this checkout into EDMC's plugin folder |
+
+## Working on a checkout
+
+Double-click **`nvir/link-to-edmc.bat`**. It junctions the plugin root — its
+own parent, not this package folder — into
+`%LOCALAPPDATA%\EDMarketConnector\plugins`, so EDMC loads the code you are
+editing and there is nothing to copy after a change. Restart EDMC to pick up
+the link; after that a plugin reload is enough.
+
+A junction needs no administrator rights. The script names the link after the
+repository folder, so it survives a rename, and it clears an existing entry with
+`rmdir` *without* `/s` — which removes a junction or an empty folder and fails
+on anything holding files, so it can neither follow a link into your checkout
+nor delete real work.
 
 ## Adding an event
 
