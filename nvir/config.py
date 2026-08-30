@@ -20,7 +20,7 @@ PLUGIN_VERSION = "0.4.0"
 # One constant so a repo rename is a single edit. GitHub redirects the old path
 # for a renamed repo, so an outdated build keeps checking successfully.
 
-GITHUB_REPO = "Nova-Interstellar/EDMC-NVIR"
+GITHUB_REPO = "Nova-Interstellar/EDMC-NVIR-Uplink"
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 GITHUB_BRANCH = "main"
 
