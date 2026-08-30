@@ -1,0 +1,174 @@
+"""
+Delivery to the squadron API.
+
+The plugin is a transport and nothing more: it normalises a journal entry and
+hands it to nova-web, which checks it against the roster, applies the
+thresholds, renders the embed and posts it. No Discord webhook URL ever lives
+on a member's machine, so a leaked EDMC config cannot post to the channel and
+an edited plugin cannot widen what reaches it.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+
+try:
+    import requests  # type: ignore
+
+    REQUESTS_AVAILABLE = True
+except ImportError:  # pragma: no cover - EDMC ships requests
+    REQUESTS_AVAILABLE = False
+
+from .config import (
+    API_EVENTS_PATH,
+    HTTP_TIMEOUT,
+    PLUGIN_VERSION,
+    USER_AGENT,
+    base_url_for,
+)
+
+
+@dataclass
+class Delivery:
+    """The outcome of one send attempt."""
+
+    ok: bool
+    status: int = 0
+    detail: str = ""
+    retry_after: float = 0.0
+    retryable: bool = False
+    # Decoded JSON response. The API replies with its own verdict even on
+    # success - an event can be accepted and still go unposted for falling
+    # under a threshold - and echoes the rendered embed for debug sends.
+    body: Optional[dict] = None
+
+
+def _clip(text: str, limit: int) -> str:
+    text = str(text)
+    return text if len(text) <= limit else text[: limit - 1] + "\N{HORIZONTAL ELLIPSIS}"
+
+
+class ApiTransport:
+    """Posts normalised payloads to nova-web."""
+
+    name = "api"
+
+    def __init__(self, settings):
+        self._settings = settings
+        self._session = None
+        if REQUESTS_AVAILABLE:
+            self._session = requests.Session()
+            self._session.headers.update(
+                {"User-Agent": USER_AGENT, "Content-Type": "application/json"}
+            )
+
+    def close(self) -> None:
+        if self._session is not None:
+            self._session.close()
+            self._session = None
+
+    def url_for(self, category: str, test: bool = False) -> str:
+        base = base_url_for(category, test).rstrip("/")
+        return base + API_EVENTS_PATH if base else ""
+
+    def target(self) -> str:
+        return base_url_for("", False) or "no API URL configured"
+
+    def is_ready(self) -> bool:
+        """The endpoint ships with the plugin; only the token is missing-able."""
+        return bool(self._settings.api_token_value)
+
+    def send(self, payload: dict) -> Delivery:
+        url = self.url_for(payload.get("category", ""), payload.get("test", False))
+        if not url:
+            return Delivery(False, detail="No API URL configured")
+
+        token = self._settings.api_token_value
+        if not token:
+            return Delivery(False, detail="No squadron token configured")
+
+        result = self._post(
+            url,
+            payload,
+            {
+                "Authorization": "Bearer {0}".format(token),
+                "X-NVIR-Plugin": PLUGIN_VERSION,
+            },
+        )
+
+        # A 2xx only means the API accepted the event. It still decides whether
+        # the event was worth posting, so report its verdict rather than ours.
+        if result.ok and result.body is not None:
+            verdict = "Posted" if result.body.get("posted") else "Accepted, not posted"
+            reason = str(result.body.get("reason") or "").strip()
+            result.detail = (
+                "{0} \N{EM DASH} {1}".format(verdict, reason) if reason else verdict
+            )
+
+        return result
+
+    def _post(self, url: str, body: dict, headers: dict) -> Delivery:
+        if not REQUESTS_AVAILABLE:
+            return Delivery(False, detail="The requests library is unavailable")
+
+        if self._session is None:
+            return Delivery(False, detail="Transport is closed")
+
+        try:
+            response = self._session.post(
+                url, json=body, headers=headers, timeout=HTTP_TIMEOUT
+            )
+        except Exception as err:  # network unreachable, DNS, TLS, timeout
+            return Delivery(False, detail=str(err), retryable=True, retry_after=5.0)
+
+        status = response.status_code
+
+        if 200 <= status < 300:
+            decoded = None
+            try:
+                decoded = response.json()
+            except Exception:
+                pass
+            return Delivery(
+                True,
+                status=status,
+                detail="Delivered",
+                body=decoded if isinstance(decoded, dict) else None,
+            )
+
+        if status == 429:
+            retry_after = 5.0
+            try:
+                retry_after = float(response.headers.get("Retry-After", retry_after))
+            except (TypeError, ValueError):
+                pass
+            return Delivery(
+                False,
+                status=status,
+                detail="Rate limited",
+                retryable=True,
+                retry_after=retry_after,
+            )
+
+        if status >= 500:
+            return Delivery(
+                False,
+                status=status,
+                detail="Server error",
+                retryable=True,
+                retry_after=5.0,
+            )
+
+        # The API reports why it refused; fall back to the raw body otherwise.
+        detail = response.text
+        try:
+            refused = response.json()
+            if isinstance(refused, dict) and refused.get("error"):
+                detail = str(refused["error"])
+        except Exception:
+            pass
+
+        return Delivery(False, status=status, detail=_clip(detail, 300))
+
+
+def build(settings) -> ApiTransport:
+    return ApiTransport(settings)
