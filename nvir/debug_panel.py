@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import events, payload
-from .config import DEBUG, PLUGIN_VERSION
+from .config import DEBUG, PLUGIN_TITLE_SHORT, PLUGIN_VERSION
 from .log import logger
 
 
@@ -26,28 +26,55 @@ class AppPanel:
     def __init__(self, controller):
         self._controller = controller
         self._status = None
+        self._button = None
         self._window = None
 
     def build(self, parent):
-        label = tk.Label(parent, text="Nova Feed")
+        # Returning one widget rather than a (label, value) pair makes EDMC
+        # grid it columnspan=2 across the full width, so the title can flex and
+        # push the status to the right edge — and "NVIR Uplink" does not widen
+        # the narrow column shared with Cmdr, Ship and System.
+        frame = tk.Frame(parent)
+        frame.columnconfigure(0, weight=1)
 
-        right = tk.Frame(parent)
-        right.columnconfigure(0, weight=1)
+        tk.Label(frame, text=PLUGIN_TITLE_SHORT, anchor=tk.W).grid(
+            row=0, column=0, sticky=tk.EW
+        )
 
-        self._status = tk.Label(right, text=self._idle_text(), anchor=tk.W)
-        self._status.grid(row=0, column=0, sticky=tk.EW)
+        self._status = tk.Label(frame, text=self._idle_text(), anchor=tk.E)
+        self._status.grid(row=0, column=1, sticky=tk.E)
 
+        # Built once and shown or hidden as the preference changes, since
+        # plugin_app only runs at startup.
         if DEBUG:
-            ttk.Button(right, text="Debug", width=7, command=self.open_debug).grid(
-                row=0, column=1, padx=(6, 0)
+            self._button = ttk.Button(
+                frame, text="Debug", width=7, command=self.open_debug
             )
 
-        return label, right
+        self.sync()
+        return frame
+
+    def sync(self) -> None:
+        """Match the row to the current settings."""
+        self.set_status(self._idle_text())
+
+        if self._button is None:
+            return
+        try:
+            if self._controller.settings.is_debug():
+                self._button.grid(row=0, column=2, padx=(6, 0))
+            else:
+                self._button.grid_remove()
+        except tk.TclError:
+            pass
 
     def _idle_text(self) -> str:
-        if self._controller.settings.is_stealthed():
-            return "stealth"
-        return "ready"
+        settings = self._controller.settings
+        if settings.is_stealthed():
+            return "Stealth"
+        if settings.is_local():
+            return "Ready (localhost)"
+        return "Ready"
 
     def set_status(self, text: str) -> None:
         if self._status is not None:
@@ -70,7 +97,9 @@ class DebugWindow(tk.Toplevel):
         super().__init__()
         self._controller = controller
 
-        self.title("NVIR debug \N{EM DASH} {0}".format(PLUGIN_VERSION))
+        self.title(
+            "{0} debug \N{EM DASH} v{1}".format(PLUGIN_TITLE_SHORT, PLUGIN_VERSION)
+        )
         self.geometry("620x620")
         self.columnconfigure(1, weight=1)
         self.rowconfigure(5, weight=1)
@@ -153,7 +182,7 @@ class DebugWindow(tk.Toplevel):
         spec = events.spec_for(self._event.get())
         category = spec.category if spec else ""
         return (
-            self._controller.sender.transport.url_for(category, test=True)
+            self._controller.sender.transport.url_for(category)
             or "no API URL set"
         )
 

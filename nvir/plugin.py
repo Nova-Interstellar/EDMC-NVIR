@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from . import debug_panel, prefs, transport
+from . import debug_panel, prefs, transport, version
 from .config import PLUGIN_NAME, PLUGIN_VERSION
 from .journal import Journal
 from .log import logger
@@ -18,6 +18,7 @@ class Plugin:
         self.sender: Optional[Sender] = None
         self.journal: Optional[Journal] = None
         self.panel: Optional[debug_panel.AppPanel] = None
+        self.checker = version.Checker()
         self.cmdr = ""
 
     def start(self) -> str:
@@ -26,6 +27,7 @@ class Plugin:
         self.sender.start()
         self.journal = Journal(self.settings, self.sender)
         self.panel = debug_panel.AppPanel(self)
+        self.checker.start()
 
         logger.info("%s %s started", PLUGIN_NAME, PLUGIN_VERSION)
         return PLUGIN_NAME
@@ -41,7 +43,7 @@ class Plugin:
 
     def prefs_widget(self, parent):
         try:
-            return prefs.PreferencesUI(self.settings).build(parent)
+            return prefs.PreferencesUI(self.settings, self.checker).build(parent)
         except Exception as err:
             logger.exception("Building the preferences page failed")
             return prefs.error_frame(parent, err)
@@ -51,9 +53,9 @@ class Plugin:
             return
         self.settings.save()
         if self.panel is not None:
-            self.panel.set_status(
-                "stealth" if self.settings.is_stealthed() else "ready"
-            )
+            # Debug mode is a preference now, so the button appears and
+            # disappears with it rather than waiting for a restart.
+            self.panel.sync()
 
     def on_journal(self, cmdr, is_beta, system, station, entry, state) -> None:
         if cmdr:

@@ -18,13 +18,7 @@ try:
 except ImportError:  # pragma: no cover - EDMC ships requests
     REQUESTS_AVAILABLE = False
 
-from .config import (
-    API_EVENTS_PATH,
-    HTTP_TIMEOUT,
-    PLUGIN_VERSION,
-    USER_AGENT,
-    base_url_for,
-)
+from .config import API_EVENTS_PATH, HTTP_TIMEOUT, PLUGIN_VERSION, USER_AGENT
 
 
 @dataclass
@@ -66,19 +60,22 @@ class ApiTransport:
             self._session.close()
             self._session = None
 
-    def url_for(self, category: str, test: bool = False) -> str:
-        base = base_url_for(category, test).rstrip("/")
+    def url_for(self, category: str) -> str:
+        base = self._settings.base_url_for(category).rstrip("/")
         return base + API_EVENTS_PATH if base else ""
 
     def target(self) -> str:
-        return base_url_for("", False) or "no API URL configured"
+        base = self._settings.base_url_for("")
+        if not base:
+            return "no API URL configured"
+        return base + " (localhost)" if self._settings.is_local() else base
 
     def is_ready(self) -> bool:
         """The endpoint ships with the plugin; only the token is missing-able."""
         return bool(self._settings.api_token_value)
 
     def send(self, payload: dict) -> Delivery:
-        url = self.url_for(payload.get("category", ""), payload.get("test", False))
+        url = self.url_for(payload.get("category", ""))
         if not url:
             return Delivery(False, detail="No API URL configured")
 

@@ -28,14 +28,20 @@ Requires EDMC 6.x.
 
 ## Settings
 
+**File → Settings → NVIR**
+
 | Setting | What it does |
 | --- | --- |
-| **Squadron token** | Identifies you to the squadron site. Without it nothing is sent. |
+| **Squadron member token** | Identifies you to the squadron site. Without it nothing is sent. |
 | **Stealth mode** | Broadcasts nothing at all. Your category choices are remembered, just switched off. |
 | **Broadcast** | Pick which kinds of moment you are happy to share. |
 
 Stealth mode is there so you can go quiet for an evening without losing your
 settings — tick it, and nothing you do reaches the channel until you untick it.
+
+The top of the page shows the version you are running, and whether a newer one
+has been published. Either way it links to the repository, where you can
+download the latest.
 
 ## What gets posted
 
@@ -80,6 +86,9 @@ sale is filtered out on purpose.
 
 **Something looks wrong.** EDMC's log has the detail —
 **File → Settings → Plugins → Open Log Folder**, and search for `NVIR`.
+
+**The settings page says "Version check unavailable".** It could not reach
+GitHub. Harmless — it has no effect on whether your events are sent.
 
 ---
 

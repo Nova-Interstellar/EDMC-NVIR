@@ -22,7 +22,8 @@ Nothing blocks EDMC's main thread: `journal_entry` only enqueues.
 
 | File | Holds |
 | --- | --- |
-| `config.py` | Build-time switches: `DEBUG`, endpoints, preference keys |
+| `config.py` | Build-time switches: `DEBUG`, endpoints, repo, preference keys |
+| `version.py` | Update check against the published `PLUGIN_VERSION` |
 | `events.py` | The registry — the one table deciding what may be sent |
 | `payload.py` | The normalised wire shape |
 | `transport.py` | HTTP to nova-web, retries classified |
@@ -105,16 +106,71 @@ singular one misses most exploration sales.
 `config.py` holds them. Members never type a URL — an endpoint is squadron
 infrastructure, not a preference.
 
-- `API_BASE_URL` — where events go.
+- `API_BASE_URL` — where events go (`https://nvir.vercel.app`).
 - `CATEGORY_API_URLS` — per-category override, for pointing a category at a
   different *deployment*. Routing a category to a different Discord *channel* is
   done on the site, in `src/constants/squadron-channels.ts`.
-- `DEBUG_API_URL` — where debug sends go while `DEBUG` is on. Point it at
-  `http://localhost:3000` to develop against a local site.
+- `DEFAULT_LOCALHOST_URL` — prefilled into the debug section's field.
+
+Resolution order, in `Settings.base_url_for`:
+
+1. **Localhost redirect**, if both debug gates and Use localhost are on. Beats
+   everything, so a development build cannot post into the live feed.
+2. The category's entry in `CATEGORY_API_URLS`, if set.
+3. `API_BASE_URL`.
+
+A build shipped with `DEBUG = False` ignores a stored localhost redirect
+entirely, so a developer's setting cannot follow the plugin to a member. See
+[The two debug gates](#the-two-debug-gates).
+
+Note that `test` on the payload does **not** change where the plugin posts — it
+tells the site to use its debug Discord channel. Redirecting the plugin itself
+is what the localhost toggle is for.
+
+## The two debug gates
+
+Debug tooling is behind two switches, and both must be on:
+
+1. **`DEBUG` in `config.py`** — whether the build carries the tooling at all.
+   A release build ships `DEBUG = False`, and then no Development section is
+   drawn and any stored debug preference is ignored outright.
+2. **The Debug mode checkbox** — whether this commander has switched it on.
+
+`Settings.is_debug()` is that `and`. It gates the Development section's
+contents, the main window's Debug button, and the localhost redirect
+(`is_local()` is `is_debug() and use_localhost`).
+
+The Debug button is built once at startup and shown or hidden on preference
+save, because `plugin_app` only runs once — toggling it does not need a restart.
+
+## Developing against a local site
+
+Tick **Debug mode**, then **Use localhost**, and point it at your dev server.
+Each field is greyed out until the switch above it is on, and the debug
+window's destination line shows where a send would actually go.
+
+Beats editing `config.py` and remembering to put it back.
+
+## Update check
+
+`version.py` reads `PLUGIN_VERSION` out of `nvir/config.py` on the repository's
+default branch, so a check works without cutting a release. The fetch runs on a
+background thread at plugin start and the answer is cached for the session; the
+settings page renders whatever is known and updates in place when it lands.
+
+Versions compare numerically, so `0.10.0` is correctly newer than `0.9.0`, and a
+suffix like `0.4.0-rc1` degrades to `(0, 4, 0)` rather than breaking the check.
+
+`GITHUB_REPO` is a single constant. Renaming the repository is one edit — and
+GitHub redirects the old path, so an already-shipped build keeps checking
+successfully in the meantime.
+
+Bumping `PLUGIN_VERSION` and pushing is what tells every member an update
+exists, so bump it in the same commit as the change you want them to take.
 
 ## Debug window
 
-`DEBUG = True` in `config.py` puts a **Debug** button in EDMC's main window.
+With both debug gates on, a **Debug** button appears in EDMC's main window.
 Pick an event, edit its journal fields as JSON, and:
 
 - **Preview** shows the payload and the URL it would go to. Sends nothing.
@@ -124,13 +180,13 @@ Pick an event, edit its journal fields as JSON, and:
 Because it goes through `payload.build` and the real sender queue, it exercises
 the same code a live journal entry does.
 
-Turn `DEBUG` off for a release build.
+Ship a release build with `DEBUG = False`.
 
 ## Payload
 
 ```json
 {
-  "v": 1, "plugin": "0.3.0",
+  "v": 1, "plugin": "0.4.0",
   "cmdr": "Elias Korben",
   "event": "SellOrganicData", "category": "exobiology",
   "at": "2026-08-30T18:04:11Z",

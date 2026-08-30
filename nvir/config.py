@@ -10,11 +10,32 @@ broadcast; those live in `settings.py`.
 """
 
 PLUGIN_NAME = "NVIR"
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_TITLE = "Nova Interstellar Uplink"
+# For the main EDMC window, where the row shares a narrow column with the
+# commander, ship and system fields.
+PLUGIN_TITLE_SHORT = "NVIR Uplink"
+PLUGIN_VERSION = "0.4.0"
+
+# --- Repository --------------------------------------------------------------
+# One constant so a repo rename is a single edit. GitHub redirects the old path
+# for a renamed repo, so an outdated build keeps checking successfully.
+
+GITHUB_REPO = "Nova-Interstellar/EDMC-NVIR"
+GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
+GITHUB_BRANCH = "main"
+
+# The published version is read from this file's own PLUGIN_VERSION on the
+# default branch, so a check works without cutting a release.
+VERSION_SOURCE_URL = (
+    f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/nvir/config.py"
+)
+
+# An update check must never hold up the settings page.
+VERSION_CHECK_TIMEOUT = 6
 
 # Shows the debug panel in the main EDMC window: pick an event, edit its
 # fields, send it through the real delivery path. Turn off for a release build.
-DEBUG = False
+DEBUG = True
 
 # --- Endpoints ---------------------------------------------------------------
 # Events go to the nova-web API, which checks them against the squadron roster,
@@ -22,7 +43,7 @@ DEBUG = False
 # URL ever reaches a member's machine: the site holds those, so a leaked EDMC
 # config exposes nothing and channels can be re-routed without a plugin update.
 
-API_BASE_URL = "https://nova-interstellar.vercel.app"
+API_BASE_URL = "https://nvir.vercel.app"
 
 API_EVENTS_PATH = "/api/squadron/events"
 
@@ -38,9 +59,10 @@ CATEGORY_API_URLS = {
     "carrier": "",
 }
 
-# Where debug sends go while DEBUG is on. Blank means API_BASE_URL; the payload
-# is flagged `test` either way, and the site posts it to its debug channel.
-DEBUG_API_URL = "http://localhost:3000"
+# Prefilled into the debug section's localhost field the first time DEBUG runs.
+# Nothing points here unless "Use localhost" is ticked in preferences, so the
+# URL no longer has to be commented in and out of source to switch.
+DEFAULT_LOCALHOST_URL = "http://localhost:3000"
 
 USER_AGENT = f"EDMC-NVIR/{PLUGIN_VERSION}"
 HTTP_TIMEOUT = 10
@@ -63,6 +85,12 @@ KEY_API_TOKEN = "nvir_api_token"
 KEY_STEALTH = "nvir_stealth"
 KEY_CATEGORY = "nvir_category_{0}"
 
+# Debug-only, and only honoured while DEBUG is on: a build shipped with
+# DEBUG = False ignores whatever these hold.
+KEY_DEBUG_MODE = "nvir_debug_mode"
+KEY_USE_LOCALHOST = "nvir_use_localhost"
+KEY_LOCALHOST_URL = "nvir_localhost_url"
+
 # Settings retired as the plugin moved to the squadron API. Any value still
 # stored under these keys is deleted on load, so no webhook URL or hand-typed
 # endpoint lingers in a member's EDMC config.
@@ -79,8 +107,12 @@ RETIRED_KEYS = (
 )
 
 
-def base_url_for(category: str, test: bool = False) -> str:
-    """Endpoint for a category: its override, else the shared base URL."""
-    if test:
-        return DEBUG_API_URL or API_BASE_URL
+def squadron_url_for(category: str) -> str:
+    """
+    The live endpoint for a category: its override, else the shared base URL.
+
+    A debug send goes here too. `test` on the payload tells the site to post it
+    to the debug Discord channel; it does not change where the plugin posts.
+    Redirecting the plugin itself is what the localhost toggle is for.
+    """
     return CATEGORY_API_URLS.get(category) or API_BASE_URL
