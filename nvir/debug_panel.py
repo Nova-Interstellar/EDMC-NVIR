@@ -6,9 +6,12 @@ pick a registered event, edit its journal fields as JSON, and send it through
 the real delivery path - same extraction, same payload, same transport as a
 live event.
 
-Preview shows the payload and where it would go, without sending. Send posts it
-with `test` set, so the API routes it by the Debug API URL rather than the live
-one, and echoes back the embed it rendered.
+Promotion is listed once per career, so testing a rank-up in any channel is one
+pick. Preview shows the payload and where it would go, without sending.
+
+Send posts for real. It flags the payload as a test by default, so the site
+routes it to the debug channel; ticking "Live channel" clears that flag and the
+event lands in the channel it would in normal play.
 """
 
 import json
@@ -105,16 +108,28 @@ class DebugWindow(tk.Toplevel):
         self.rowconfigure(5, weight=1)
         self.rowconfigure(7, weight=1)
 
-        names = events.event_names()
-        self._event = tk.StringVar(value=names[0])
+        # Promotion is listed once per career, so a rank-up in any channel is
+        # one pick rather than hand-editing the career into the JSON.
+        self._choices = {}
+        for name in events.event_names():
+            if name == "Promotion":
+                for career in events.PROMOTION_CATEGORIES:
+                    self._choices["Promotion / {0}".format(career)] = (name, career)
+            else:
+                self._choices[name] = (name, None)
+
+        labels = list(self._choices)
+        self._event = tk.StringVar(value=labels[0])
         self._cmdr = tk.StringVar(value=controller.cmdr or "Test Commander")
         self._system = tk.StringVar(value="Shinrarta Dezhra")
         self._station = tk.StringVar(value="Jameson Memorial")
+        # Off by default: a debug send goes to the debug channel unless asked.
+        self._live = tk.BooleanVar(value=False)
 
         row = 0
         ttk.Label(self, text="Event").grid(row=row, column=0, sticky=tk.W, padx=8, pady=4)
         picker = ttk.OptionMenu(
-            self, self._event, names[0], *names, command=self._on_event_change
+            self, self._event, labels[0], *labels, command=self._on_event_change
         )
         picker.grid(row=row, column=1, sticky=tk.EW, padx=8, pady=4)
         row += 1
@@ -152,6 +167,12 @@ class DebugWindow(tk.Toplevel):
         ttk.Button(buttons, text="Send", command=self._send).pack(
             side=tk.LEFT, padx=(6, 0)
         )
+        ttk.Checkbutton(
+            buttons,
+            text="Live channel",
+            variable=self._live,
+            command=self._refresh_target,
+        ).pack(side=tk.LEFT, padx=(12, 0))
         self._target = ttk.Label(buttons, text="")
         self._target.pack(side=tk.RIGHT)
         row += 1
@@ -170,15 +191,27 @@ class DebugWindow(tk.Toplevel):
         self._load_sample()
         self._refresh_target()
 
+    def _selection(self):
+        """(event name, career or None) for the current pick."""
+        return self._choices.get(self._event.get(), (self._event.get(), None))
+
     def _load_sample(self) -> None:
-        spec = events.spec_for(self._event.get())
+        event_name, career = self._selection()
+        spec = events.spec_for(event_name)
         sample = dict(spec.sample) if spec else {}
-        sample = {"event": self._event.get(), "timestamp": payload.utc_now(), **sample}
+
+        if career:
+            # Top of that career's ladder, so the sample reads as a milestone.
+            table = events.RANK_TABLES.get(career, [])
+            sample = {career: max(len(table) - 1, 0)}
+
+        sample = {"event": event_name, "timestamp": payload.utc_now(), **sample}
         self._entry_text.delete("1.0", tk.END)
         self._entry_text.insert("1.0", json.dumps(sample, indent=2))
 
     def _destination(self) -> str:
-        return self._controller.sender.transport.url() or "no API URL set"
+        url = self._controller.sender.transport.url() or "no API URL set"
+        return "{0}  [{1}]".format(url, "LIVE" if self._live.get() else "debug")
 
     def _refresh_target(self) -> None:
         self._target.configure(text=self._destination())
@@ -193,7 +226,8 @@ class DebugWindow(tk.Toplevel):
                 self._write("Journal fields are not valid JSON:\n{0}".format(err))
             return []
 
-        entry.setdefault("event", self._event.get())
+        event_name, _career = self._selection()
+        entry.setdefault("event", event_name)
         entry.setdefault("timestamp", payload.utc_now())
 
         built = payload.build(
@@ -202,7 +236,9 @@ class DebugWindow(tk.Toplevel):
             entry,
             self._system.get().strip(),
             self._station.get().strip(),
-            test=True,
+            # Unticking "Live channel" keeps the payload flagged as a test, so
+            # the site routes it to the debug channel instead of the real one.
+            test=not self._live.get(),
         )
 
         if not built and not quiet:

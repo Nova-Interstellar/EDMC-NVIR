@@ -35,7 +35,7 @@ VERSION_CHECK_TIMEOUT = 6
 
 # Shows the debug panel in the main EDMC window: pick an event, edit its
 # fields, send it through the real delivery path. Turn off for a release build.
-DEBUG = True
+DEBUG = False
 
 # --- Endpoints ---------------------------------------------------------------
 # Events go to the nova-web API, which checks them against the squadron roster,
