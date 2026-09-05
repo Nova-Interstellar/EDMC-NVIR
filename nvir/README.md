@@ -75,10 +75,17 @@ nonce, routed and retried alone. Its `category` is a function of the data
 rather than a constant — the one event whose destination depends on its
 contents.
 
-Then add the event to `FEED_EVENTS` in nova-web's
-`src/data/internal/authored/squadron-feed.ts` and give it a describer in
-`src/services/squadron-feed.ts` — the server keeps its own allowlist, so an
-event the plugin sends but the site does not know is refused.
+Then do both halves on nova-web, or the event cannot work:
+
+- add it to `FEED_EVENT_CHANNELS` in
+  `src/data/internal/authored/squadron-feed.ts`;
+- give it a describer in `src/services/squadron-feed.ts`.
+
+The site re-derives an event's channel from its name rather than trusting the
+payload's, so one it does not know is refused with **422 Not a recognised feed
+event** — and one that routes but has no describer posts an embed with an empty
+description. Both halves ship together, and both have to be deployed before the
+plugin can send the event at all.
 
 An extractor returns `None` to decline an occurrence: `RedeemVoucher` uses this
 to drop trade dividends and scan vouchers, which share the event with bounties
@@ -124,21 +131,28 @@ infrastructure, not a preference.
 - Channel routing is decided on the site, not here: `FEED_EVENT_CHANNELS` and
   `PROMOTION_CHANNELS` in `src/data/internal/authored/squadron-feed.ts`, with
   the webhook URLs themselves in Vercel Global Config.
-- `DEFAULT_LOCALHOST_URL` — prefilled into the debug section's field.
+`Settings.base_url()` resolves it:
 
-Resolution order, in `Settings.base_url_for`:
-
-1. **Localhost redirect**, if both debug gates and Use localhost are on. Beats
-   everything, so a development build cannot post into the live feed.
+1. **The Dev Mode endpoint**, if both debug gates are on. It wins outright, so a
+   development build cannot post into the live feed.
 2. `API_BASE_URL`.
 
-A build shipped with `DEBUG = False` ignores a stored localhost redirect
-entirely, so a developer's setting cannot follow the plugin to a member. See
+Dev Mode with an empty endpoint returns **nothing**, and the transport refuses
+with `no_endpoint`. Falling back to production there would be the exact accident
+Dev Mode exists to prevent: ticking the box says "not production", and a blank
+field is a setting half-finished rather than permission to post to the squadron.
+
+There is no default endpoint. A shipped one would put a single deployment's
+hostname in the source of a repository that may go public, and it would be wrong
+for everyone who is not the person who chose it.
+
+A build shipped with `DEBUG = False` ignores a stored endpoint entirely, so a
+developer's setting cannot follow the plugin to a member. See
 [The two debug gates](#the-two-debug-gates).
 
 Note that `test` on the payload does **not** change where the plugin posts — it
 tells the site to use its debug Discord channel. Redirecting the plugin itself
-is what the localhost toggle is for.
+is what the Dev Mode endpoint does.
 
 ## The two debug gates
 
@@ -149,20 +163,65 @@ Debug tooling is behind two switches, and both must be on:
    drawn and any stored debug preference is ignored outright.
 2. **The Debug mode checkbox** — whether this commander has switched it on.
 
-`Settings.is_debug()` is that `and`. It gates the Development section's
-contents, the main window's Debug button, and the localhost redirect
-(`is_local()` is `is_debug() and use_localhost`).
+`Settings.is_debug()` is that `and`. It gates the Development row, the main
+window's Debug button, and where events go —
+`is_dev_endpoint()` is `is_debug() and dev_api_url_value`.
+
+There used to be a third switch, a separate "use localhost" tick. It is gone,
+and so is the state it made possible: development tooling running while events
+still posted into the live feed, one unticked box away at all times.
 
 The Debug button is built once at startup and shown or hidden on preference
 save, because `plugin_app` only runs once — toggling it does not need a restart.
 
-## Developing against a local site
+## Developing against another site
 
-Tick **Debug mode**, then **Use localhost**, and point it at your dev server.
-Each field is greyed out until the switch above it is on, and the debug
-window's destination line shows where a send would actually go.
+Tick **Enable Dev Mode** and type an endpoint — a local dev server, or staging.
+The field appears only once the box is ticked, and the debug window's
+destination line shows where a send would actually go.
 
 Beats editing `config.py` and remembering to put it back.
+
+A token belongs to one deployment's database, so a token from production will
+not work against staging and the other way round. The settings page's profile
+link points at whichever endpoint is configured, which is the point of it.
+
+## Failure handling
+
+A refusal carries three things: `error` for the member to read, and `code` plus
+`terminal` for the plugin to act on. Never match on the wording — it will change,
+and it is written for a web page.
+
+| Status | `code` | `terminal` |
+| --- | --- | --- |
+| 401 | `no_token`, `unknown_token`, `revoked` | yes |
+| 403 | `suspended` | yes |
+| 503 | `unavailable` | no |
+| 429, 5xx, timeout | *(none)* | no |
+
+`standing.py` latches on `terminal` and on nothing else — not on a status code,
+and never on a response it does not understand. A proxy or a platform error page
+can answer 4xx with HTML, and discarding a token over that would be worse than
+retrying forever.
+
+`unavailable` is the case the whole contract exists for. Until the site
+distinguished it, a missing environment variable and a failed query were
+reported as rejected credentials, and any plugin that acted on 401 would have
+emptied every member's settings during one database outage.
+
+While latched, `Sender` refuses before the wire and drops what is queued.
+Holding the backlog would flush a burst of stale events the moment a new token
+is pasted — and after a revoke, deliver data the squadron had decided to stop
+receiving. It clears on a different token being saved, on a later success, or on
+a restart, since the latch lives in memory: a suspension lifted while EDMC was
+closed simply works again, at the cost of one wasted request.
+
+Failures surface in three places, all from the same state on `Plugin`:
+
+- the main window row, in red, shortened from `code` because the site's own
+  sentences stretch EDMC's window across the screen;
+- the settings page, in full, next to the field that fixes it;
+- a link to the profile that issues a token.
 
 ## Update check
 
@@ -187,8 +246,12 @@ With both debug gates on, a **Debug** button appears in EDMC's main window.
 Pick an event, edit its journal fields as JSON, and:
 
 - **Preview** shows the payload and the URL it would go to. Sends nothing.
-- **Send** posts it for real with `test` set, so the site routes it to the debug
-  channel, and echoes back the embed it rendered.
+- **Send** posts it for real, always with `test` set, so the site routes it to
+  the debug channel, and echoes back the embed it rendered.
+
+There is no way to aim a hand-made event at a live channel. A "Live channel"
+tick used to clear the flag; it was the last thing that could reach the squadron
+from here, and removing it costs nothing a real journal entry cannot do.
 
 Because it goes through `payload.build` and the real sender queue, it exercises
 the same code a live journal entry does.
@@ -199,7 +262,7 @@ Ship a release build with `DEBUG = False`.
 
 ```json
 {
-  "v": 1, "plugin": "0.4.0",
+  "v": 1, "plugin": "0.5.0",
   "cmdr": "Elias Korben",
   "event": "Promotion",
   "category": "exploration",
