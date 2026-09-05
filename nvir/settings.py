@@ -3,8 +3,8 @@ Per-commander preferences, stored in EDMC's config.
 
 Only two things are a commander's choice: the squadron token, and what they are
 willing to broadcast. Endpoints are squadron infrastructure and live in
-`config.py` — except the localhost redirect, which is a development switch and
-only exists while DEBUG is on.
+`config.py` — except the development endpoint, which only exists while DEBUG is
+on and which Debug mode alone decides.
 """
 
 import tkinter as tk
@@ -14,13 +14,13 @@ from config import config  # type: ignore
 from . import events
 from .config import (
     DEBUG,
-    DEFAULT_LOCALHOST_URL,
     KEY_API_TOKEN,
     KEY_CATEGORY,
     KEY_DEBUG_MODE,
-    KEY_LOCALHOST_URL,
+    KEY_DEV_API_URL,
     KEY_STEALTH,
-    KEY_USE_LOCALHOST,
+    LEGACY_DEV_URL_KEY,
+    PROFILE_PATH,
     RETIRED_KEYS,
     squadron_url,
 )
@@ -38,15 +38,18 @@ class Settings:
 
         # Development only; ignored unless DEBUG is on in config.py.
         self.debug_mode = tk.BooleanVar()
-        self.use_localhost = tk.BooleanVar()
-        self.localhost_url = tk.StringVar()
+        self.dev_api_url = tk.StringVar()
 
         # Plain copies for the delivery thread. Tk variables may only be read
         # from the thread running the main loop, and the sender is not it.
         self.api_token_value = ""
         self.debug_mode_value = False
-        self.use_localhost_value = False
-        self.localhost_url_value = ""
+        self.dev_api_url_value = ""
+
+        # Set by the plugin. Fired only when the value really changes, so
+        # saving the settings page for an unrelated toggle does not clear a
+        # latch that is still correct.
+        self.on_token_changed = None
 
         self.load()
 
@@ -60,14 +63,13 @@ class Settings:
             var.set(config.get_bool(KEY_CATEGORY.format(key), default=True))
 
         self.debug_mode.set(config.get_bool(KEY_DEBUG_MODE, default=False))
-        self.use_localhost.set(config.get_bool(KEY_USE_LOCALHOST, default=False))
-        self.localhost_url.set(
-            config.get_str(KEY_LOCALHOST_URL, default="") or DEFAULT_LOCALHOST_URL
-        )
+        self.dev_api_url.set(self._load_dev_url())
 
         self._snapshot()
 
     def save(self) -> None:
+        previous = self.api_token_value
+
         config.set(KEY_API_TOKEN, self.api_token.get().strip())
         config.set(KEY_STEALTH, self.stealth.get())
 
@@ -75,11 +77,34 @@ class Settings:
             config.set(KEY_CATEGORY.format(key), var.get())
 
         config.set(KEY_DEBUG_MODE, self.debug_mode.get())
-        config.set(KEY_USE_LOCALHOST, self.use_localhost.get())
-        config.set(KEY_LOCALHOST_URL, self.localhost_url.get().strip())
+        config.set(KEY_DEV_API_URL, self.dev_api_url.get().strip())
 
         self._snapshot()
         logger.info("Preferences saved")
+
+        if self.api_token_value != previous and self.on_token_changed is not None:
+            self.on_token_changed()
+
+    def _load_dev_url(self) -> str:
+        """
+        The development endpoint, carried over from the old key once.
+
+        Someone who had already pointed this at staging should not have to
+        find that URL again because the setting was reshaped underneath them.
+        """
+        stored = config.get_str(KEY_DEV_API_URL, default="")
+
+        if not stored:
+            legacy = config.get_str(LEGACY_DEV_URL_KEY, default="")
+            if legacy:
+                stored = legacy
+                config.set(KEY_DEV_API_URL, legacy)
+                logger.info("Carried the development endpoint over from %s", LEGACY_DEV_URL_KEY)
+
+        if config.get_str(LEGACY_DEV_URL_KEY, default=""):
+            config.delete(LEGACY_DEV_URL_KEY)
+
+        return stored
 
     def _drop_retired_keys(self) -> None:
         """Clear webhook URLs and endpoints left by an earlier build."""
@@ -92,8 +117,7 @@ class Settings:
         """Refresh the plain copies the delivery thread reads."""
         self.api_token_value = self.api_token.get().strip()
         self.debug_mode_value = bool(self.debug_mode.get())
-        self.use_localhost_value = bool(self.use_localhost.get())
-        self.localhost_url_value = self.localhost_url.get().strip()
+        self.dev_api_url_value = self.dev_api_url.get().strip()
 
     def is_debug(self) -> bool:
         """
@@ -105,22 +129,37 @@ class Settings:
         """
         return bool(DEBUG and self.debug_mode_value)
 
-    def is_local(self) -> bool:
-        """Whether events are being redirected to a local site."""
-        return bool(self.is_debug() and self.use_localhost_value)
+    def is_dev_endpoint(self) -> bool:
+        """
+        Whether events are going somewhere other than production.
+
+        Dev mode alone decides it. The second checkbox that used to gate this
+        only made it possible to have development tooling switched on while
+        still posting into the live feed, which is never what anyone wanted.
+        """
+        return bool(self.is_debug() and self.dev_api_url_value)
 
     def base_url(self) -> str:
         """
         Where events go.
 
-        The localhost redirect wins over everything while DEBUG is on, so a
-        development build cannot accidentally post into the live feed. A
-        release build (DEBUG = False) always uses the squadron endpoint,
-        whatever is stored.
+        Dev mode redirects everything while DEBUG is on, so a development build
+        cannot accidentally post into the live feed. A release build
+        (DEBUG = False) always uses the squadron endpoint, whatever is stored.
+
+        Dev mode with no endpoint typed returns nothing at all, which the
+        transport refuses. Falling back to production there would be the exact
+        accident dev mode exists to prevent — someone who ticked the box has
+        said they do not want the live feed, and an empty field is a setting
+        half-finished rather than permission to post to the squadron.
         """
-        if self.is_local():
-            return self.localhost_url_value or DEFAULT_LOCALHOST_URL
+        if self.is_debug():
+            return self.dev_api_url_value
         return squadron_url()
+
+    def profile_url(self) -> str:
+        """Where to send someone to generate a token for *this* endpoint."""
+        return self.base_url().rstrip("/") + PROFILE_PATH
 
     def is_stealthed(self) -> bool:
         return bool(self.stealth.get())

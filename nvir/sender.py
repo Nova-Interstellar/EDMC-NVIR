@@ -12,6 +12,7 @@ from typing import Callable, Optional
 
 from .config import MAX_ATTEMPTS
 from .log import logger
+from .standing import Standing
 from .transport import Delivery
 
 # Pushed onto the queue to wake the worker for shutdown.
@@ -21,8 +22,9 @@ _SHUTDOWN = object()
 class Sender:
     """Queues payloads and delivers them on a background thread."""
 
-    def __init__(self, transport):
+    def __init__(self, transport, standing=None):
         self._transport = transport
+        self._standing = standing or Standing()
         self._queue: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -51,6 +53,32 @@ class Sender:
     def transport(self):
         return self._transport
 
+    @property
+    def standing(self) -> Standing:
+        return self._standing
+
+    def _drain(self) -> None:
+        """
+        Throws away everything still queued.
+
+        Called when the site has refused the credential outright. Holding the
+        backlog would mean flushing it the moment a new token is pasted, which
+        posts a burst of stale events — and, after a revoke, delivers data the
+        squadron had decided to stop receiving.
+        """
+        dropped = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            self._queue.task_done()
+            if item is not _SHUTDOWN:
+                dropped += 1
+
+        if dropped:
+            logger.warning("Dropped %d queued event(s): uplink is latched", dropped)
+
     def pending(self) -> int:
         return self._queue.qsize()
 
@@ -63,6 +91,12 @@ class Sender:
         `on_result` is invoked on the worker thread, so a Tk caller must
         marshal back with `widget.after(...)` before touching any widget.
         """
+        # Nothing is queued while latched. The worker would refuse it anyway;
+        # this keeps a long session from growing a backlog it will only drop.
+        if self._standing.is_latched():
+            logger.debug("Not queueing %s: uplink is latched", payload.get("event", "?"))
+            return
+
         self._queue.put((payload, on_result))
 
     def _run(self) -> None:
@@ -84,6 +118,13 @@ class Sender:
             finally:
                 self._queue.task_done()
 
+            # Recorded here rather than in the UI callback, so the next item in
+            # the queue already knows — a revoked token stops the whole backlog
+            # rather than each event discovering it one at a time.
+            if self._standing.record(result):
+                logger.error("Uplink latched (%s): %s", result.code, result.detail)
+                self._drain()
+
             if on_result is not None:
                 try:
                     on_result(result)
@@ -93,6 +134,17 @@ class Sender:
     def _deliver(self, payload: dict) -> Delivery:
         event_name = payload.get("event", "?")
         result = Delivery(False, detail="Not attempted")
+
+        # Refused before it is sent. The site has already said this credential
+        # will not work, so asking again on every journal entry only fills the
+        # log with the same rejection.
+        if self._standing.is_latched():
+            return Delivery(
+                False,
+                detail=self._standing.detail or "Uplink stopped",
+                code=self._standing.code,
+                terminal=True,
+            )
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             result = self._transport.send(payload)
@@ -112,7 +164,10 @@ class Sender:
             if self._stop.wait(result.retry_after):
                 return result
 
+        # `attempt`, not MAX_ATTEMPTS: a refusal that is not retryable gives up
+        # after one try, and a log claiming three would send whoever reads it
+        # hunting for two requests that never happened.
         logger.error(
-            "Dropped %s after %d attempts: %s", event_name, MAX_ATTEMPTS, result.detail
+            "Dropped %s after %d attempt(s): %s", event_name, attempt, result.detail
         )
         return result

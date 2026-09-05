@@ -14,6 +14,7 @@ journal_entry (EDMC main thread)
   └─ journal.py    replay guard, category gate, carrier ownership
       └─ payload.py    normalise to the wire shape
           └─ sender.py     queue, hand to the delivery thread
+                            (refuses outright while standing.py is latched)
               └─ transport.py  POST to nova-web
                                   └─ roster, routing, embed, Discord
 ```
@@ -28,6 +29,7 @@ Nothing blocks EDMC's main thread: `journal_entry` only enqueues.
 | `payload.py` | The normalised wire shape |
 | `transport.py` | HTTP to nova-web, retries classified |
 | `sender.py` | Queue and delivery thread, rate-limit back-off |
+| `standing.py` | Whether the credential is still worth using |
 | `journal.py` | Replay guard, category gate, carrier ownership |
 | `settings.py` | Token and category choices |
 | `prefs.py` | Settings tab |

@@ -15,9 +15,10 @@ from .log import logger
 class Journal:
     """Filters journal entries down to the ones the registry declares."""
 
-    def __init__(self, settings, sender):
+    def __init__(self, settings, sender, on_delivery=None):
         self._settings = settings
         self._sender = sender
+        self._on_delivery = on_delivery
         # EDMC replays the current journal file when it loads, so anything
         # stamped before the plugin started is history, not news.
         self._started_at = datetime.now(timezone.utc) - timedelta(
@@ -86,6 +87,12 @@ class Journal:
 
     def _record(self, result) -> None:
         self._last_result = result.detail
+
+        # Live events used to fail silently: the detail was stored here and
+        # nothing ever read it, so a revoked token looked exactly like a quiet
+        # evening.
+        if self._on_delivery is not None:
+            self._on_delivery(result)
 
     def _is_replay(self, entry: dict) -> bool:
         stamped = self._parse_timestamp(entry.get("timestamp"))

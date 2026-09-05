@@ -30,6 +30,14 @@ class Delivery:
     detail: str = ""
     retry_after: float = 0.0
     retryable: bool = False
+    # The API's own verdict, when it sends one. `code` names the reason;
+    # `terminal` says the credential will not start working on its own.
+    #
+    # Both default to "absent" on purpose. A proxy, a captive portal or a
+    # platform error page can answer 4xx with HTML, and treating that as a
+    # terminal refusal would discard a token that was never wrong.
+    code: str = ""
+    terminal: bool = False
     # Decoded JSON response. The API replies with its own verdict even on
     # success - an event can be accepted and still go unposted for falling
     # under a threshold - and echoes the rendered embed for debug sends.
@@ -67,8 +75,8 @@ class ApiTransport:
     def target(self) -> str:
         base = self._settings.base_url()
         if not base:
-            return "no API URL configured"
-        return base + " (localhost)" if self._settings.is_local() else base
+            return "no endpoint set"
+        return base + " (dev)" if self._settings.is_dev_endpoint() else base
 
     def is_ready(self) -> bool:
         """The endpoint ships with the plugin; only the token is missing-able."""
@@ -77,7 +85,14 @@ class ApiTransport:
     def send(self, payload: dict) -> Delivery:
         url = self.url()
         if not url:
-            return Delivery(False, detail="No API URL configured")
+            # Dev mode with an empty endpoint. Named rather than lumped in with
+            # a generic failure, because the fix is one field away and nothing
+            # about the token is wrong.
+            return Delivery(
+                False,
+                detail="Dev mode is on but no endpoint is set.",
+                code="no_endpoint",
+            )
 
         token = self._settings.api_token_value
         if not token:
@@ -157,14 +172,26 @@ class ApiTransport:
 
         # The API reports why it refused; fall back to the raw body otherwise.
         detail = response.text
+        code = ""
+        terminal = False
+
         try:
             refused = response.json()
-            if isinstance(refused, dict) and refused.get("error"):
-                detail = str(refused["error"])
+            if isinstance(refused, dict):
+                if refused.get("error"):
+                    detail = str(refused["error"])
+                code = str(refused.get("code") or "")
+                terminal = bool(refused.get("terminal"))
         except Exception:
             pass
 
-        return Delivery(False, status=status, detail=_clip(detail, 300))
+        return Delivery(
+            False,
+            status=status,
+            detail=_clip(detail, 300),
+            code=code,
+            terminal=terminal,
+        )
 
 
 def build(settings) -> ApiTransport:

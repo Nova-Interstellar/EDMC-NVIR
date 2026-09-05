@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from . import debug_panel, prefs, transport, version
+from . import debug_panel, prefs, standing, transport, version
 from .config import PLUGIN_NAME, PLUGIN_VERSION
 from .journal import Journal
 from .log import logger
@@ -14,6 +14,11 @@ class Plugin:
     """One instance per EDMC run."""
 
     def __init__(self):
+        # The last delivery failure, or None while sending is healthy. Held here
+        # rather than in the panel because the settings page needs it too, and
+        # that page is rebuilt from scratch every time it opens.
+        self.last_error: Optional[str] = None
+        self.standing = standing.Standing()
         self.settings: Optional[Settings] = None
         self.sender: Optional[Sender] = None
         self.journal: Optional[Journal] = None
@@ -23,9 +28,10 @@ class Plugin:
 
     def start(self) -> str:
         self.settings = Settings()
-        self.sender = Sender(transport.build(self.settings))
+        self.settings.on_token_changed = self._on_token_changed
+        self.sender = Sender(transport.build(self.settings), self.standing)
         self.sender.start()
-        self.journal = Journal(self.settings, self.sender)
+        self.journal = Journal(self.settings, self.sender, self.note_delivery)
         self.panel = debug_panel.AppPanel(self)
         self.checker.start()
 
@@ -38,12 +44,49 @@ class Plugin:
             self.sender = None
         logger.info("%s stopped", PLUGIN_NAME)
 
+    def _on_token_changed(self) -> None:
+        """
+        A new token deserves a try.
+
+        The latch exists to stop hammering a credential the site has rejected;
+        the moment the member replaces it, that reasoning no longer applies and
+        holding the stop would look like the plugin ignoring them.
+        """
+        self.standing.clear()
+        self.last_error = None
+
+        if self.panel is not None:
+            self.panel.clear_error()
+
+        logger.info("Token changed: uplink resumed")
+
+    def note_delivery(self, result) -> None:
+        """
+        Records what the last send did.
+
+        Called on the delivery thread, so nothing here may touch a widget —
+        `AppPanel.report` marshals back to the main loop itself.
+
+        A success clears the error. Anything else keeps the site's own words:
+        the API explains what is wrong far better than "delivery failed" can,
+        and it is the member who has to act on it.
+        """
+        # The site's full sentence, for the settings page. The panel shortens
+        # it for itself — there is room for an explanation beside the field
+        # that fixes it, and none at all in the main window.
+        self.last_error = None if result.ok else (result.detail or "Delivery failed")
+
+        if self.panel is not None:
+            self.panel.report(result)
+
     def app_widgets(self, parent):
         return self.panel.build(parent) if self.panel else None
 
     def prefs_widget(self, parent):
         try:
-            return prefs.PreferencesUI(self.settings, self.checker).build(parent)
+            return prefs.PreferencesUI(
+                self.settings, self.checker, self.last_error
+            ).build(parent)
         except Exception as err:
             logger.exception("Building the preferences page failed")
             return prefs.error_frame(parent, err)

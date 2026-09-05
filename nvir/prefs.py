@@ -23,18 +23,19 @@ from .log import logger
 
 PAD = {"padx": 10, "pady": 3}
 LINK_COLOR = "#3b82f6"
+ERROR_COLOR = "#d9534f"
 
 
 class PreferencesUI:
     """The plugin's page in EDMC's settings dialog."""
 
-    def __init__(self, settings, checker=None):
+    def __init__(self, settings, checker=None, error=None):
         self._settings = settings
         self._checker = checker
+        self._error = error
         self._category_boxes = {}
         self._bold = None
-        self._debug_widgets = []
-        self._localhost_entry = None
+        self._dev_url_entry = None
         self._version_link = None
 
     def build(self, parent) -> nb.Frame:
@@ -50,6 +51,33 @@ class PreferencesUI:
         nb.EntryMenu(
             frame, textvariable=self._settings.api_token, show="\N{BULLET}"
         ).grid(row=row, column=1, sticky=tk.EW, **PAD)
+        row += 1
+
+        # The same failure the main window is showing, repeated where the fix
+        # is. Someone who reads "token not recognised" on the status row has to
+        # come here anyway; making them remember it on the way is pointless.
+        if self._error:
+            nb.Label(
+                frame,
+                text=self._error,
+                foreground=ERROR_COLOR,
+                wraplength=380,
+                justify=tk.LEFT,
+            ).grid(row=row, column=0, columnspan=2, sticky=tk.W, **PAD)
+            row += 1
+
+        # Points at whichever site the plugin is currently sending to. A token
+        # belongs to one deployment's database, so linking to production while
+        # a development build talks to staging would hand out a token that
+        # cannot work.
+        profile_link = nb.Label(
+            frame,
+            text="Generate a token on your NVIR profile",
+            foreground=LINK_COLOR,
+            cursor="hand2",
+        )
+        profile_link.grid(row=row, column=0, columnspan=2, sticky=tk.W, **PAD)
+        profile_link.bind("<Button-1>", self._open_profile)
         row += 1
 
         nb.Checkbutton(
@@ -130,33 +158,24 @@ class PreferencesUI:
         return row + 1
 
     def _debug_section(self, frame, row: int) -> int:
-        """Development tools. Built only in a DEBUG build."""
-        nb.Label(frame, text="Development").grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, **PAD
-        )
-        row += 1
+        """
+        One row: the switch, and where it sends.
 
+        No heading and no second checkbox. Dev mode already means "not
+        production", and the endpoint is the only thing left to say about it —
+        a section title above a single control is furniture.
+        """
         nb.Checkbutton(
             frame,
-            text="Debug mode",
+            text="Enable Dev Mode",
             variable=self._settings.debug_mode,
             command=self._sync_enabled,
-        ).grid(row=row, column=0, columnspan=2, sticky=tk.W, padx=26, pady=1)
-        row += 1
+        ).grid(row=row, column=0, sticky=tk.W, **PAD)
 
-        localhost_box = nb.Checkbutton(
-            frame,
-            text="Use localhost",
-            variable=self._settings.use_localhost,
-            command=self._sync_enabled,
+        self._dev_url_entry = nb.EntryMenu(
+            frame, textvariable=self._settings.dev_api_url
         )
-        localhost_box.grid(row=row, column=0, sticky=tk.W, padx=26, pady=1)
-
-        self._localhost_entry = nb.EntryMenu(
-            frame, textvariable=self._settings.localhost_url
-        )
-        self._localhost_entry.grid(row=row, column=1, sticky=tk.EW, padx=10, pady=1)
-        self._debug_widgets = [localhost_box, self._localhost_entry]
+        self._dev_url_entry.grid(row=row, column=1, sticky=tk.EW, **PAD)
 
         return row + 1
 
@@ -176,6 +195,9 @@ class PreferencesUI:
         return row + 1
 
     # --- version ------------------------------------------------------------
+
+    def _open_profile(self, _event=None) -> None:
+        webbrowser.open(self._settings.profile_url())
 
     def _open_repository(self, _event=None) -> None:
         webbrowser.open(GITHUB_URL)
@@ -201,25 +223,27 @@ class PreferencesUI:
 
     def _sync_enabled(self) -> None:
         """
-        Stealth mode locks every broadcast toggle without clearing it; the
-        localhost row follows Debug mode, and its field follows its own box.
+        Stealth mode locks every broadcast toggle without clearing it, and the
+        endpoint field appears only once dev mode is on — hidden rather than
+        greyed out, since an empty disabled box invites the question of what it
+        would have been for.
         """
         state = tk.DISABLED if self._settings.is_stealthed() else tk.NORMAL
         for box in self._category_boxes.values():
             self._set_state(box, state)
 
-        if not DEBUG:
+        if not DEBUG or self._dev_url_entry is None:
             return
 
-        debugging = bool(self._settings.debug_mode.get())
-        for widget in self._debug_widgets:
-            self._set_state(widget, tk.NORMAL if debugging else tk.DISABLED)
+        try:
+            if self._settings.debug_mode.get():
+                self._dev_url_entry.grid()
+            else:
+                self._dev_url_entry.grid_remove()
+        except tk.TclError:
+            pass
 
-        if debugging and self._localhost_entry is not None:
-            self._set_state(
-                self._localhost_entry,
-                tk.NORMAL if self._settings.use_localhost.get() else tk.DISABLED,
-            )
+
 
     @staticmethod
     def _set_state(widget, state) -> None:

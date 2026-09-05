@@ -9,9 +9,11 @@ live event.
 Promotion is listed once per career, so testing a rank-up in any channel is one
 pick. Preview shows the payload and where it would go, without sending.
 
-Send posts for real. It flags the payload as a test by default, so the site
-routes it to the debug channel; ticking "Live channel" clears that flag and the
-event lands in the channel it would in normal play.
+Send posts for real, always flagged as a test so the site routes it to the
+debug channel. There is no way to aim a hand-made event at a live channel: a
+build with DEBUG on already sends to whichever endpoint is configured rather
+than production, and the one thing left that could still reach the squadron was
+this checkbox.
 """
 
 import json
@@ -23,14 +25,44 @@ from .config import DEBUG, PLUGIN_TITLE_SHORT, PLUGIN_VERSION
 from .log import logger
 
 
+ERROR_COLOR = "#d9534f"
+
+# The site's own wording is written for someone reading a web page and is far
+# too long for a row in EDMC's main window — it stretched the whole application
+# wide. These say the same thing in a width that fits, and the settings page
+# still carries the full sentence next to the field that fixes it.
+SHORT_ERRORS = {
+    "no_token": "No token. Check settings.",
+    "unknown_token": "Token not recognised. Check settings.",
+    "revoked": "Token revoked. Check settings.",
+    "suspended": "Uplink paused by NVIR.",
+    "unavailable": "NVIR site unreachable.",
+    "no_endpoint": "Dev mode: no endpoint set.",
+}
+
+FALLBACK_ERROR = "Uplink failed. Check settings."
+
+
 class AppPanel:
-    """The plugin's row in EDMC's main window."""
+    """
+    The plugin's row in EDMC's main window.
+
+    Its real job is failures. A send that goes wrong has nowhere else to
+    surface — EDMC has no notification area, and nobody reads a plugin log —
+    so a revoked token used to look exactly like a quiet evening.
+
+    An error stays on the row until a later send succeeds. It is not a
+    transient flash: the member is being asked to go and fix something, and a
+    message that clears itself before they look at it may as well not exist.
+    """
 
     def __init__(self, controller):
         self._controller = controller
         self._status = None
         self._button = None
         self._window = None
+        self._error = None
+        self._error_label = None
 
     def build(self, parent):
         # Returning one widget rather than a (label, value) pair makes EDMC
@@ -47,6 +79,14 @@ class AppPanel:
         self._status = tk.Label(frame, text=self._idle_text(), anchor=tk.E)
         self._status.grid(row=0, column=1, sticky=tk.E)
 
+        # Its own row underneath, so a failure never widens the window by
+        # competing with the status text for the same line. Removed from the
+        # grid entirely while healthy rather than left blank, which would keep
+        # reserving vertical space for nothing.
+        self._error_label = tk.Label(
+            frame, anchor=tk.W, justify=tk.LEFT, foreground=ERROR_COLOR
+        )
+
         # Built once and shown or hidden as the preference changes, since
         # plugin_app only runs at startup.
         if DEBUG:
@@ -57,9 +97,50 @@ class AppPanel:
         self.sync()
         return frame
 
+    def report(self, result) -> None:
+        """
+        Records the outcome of a send.
+
+        Called from the delivery thread, so the widget write is marshalled back
+        to the main loop — Tk is not thread-safe, and touching a label from the
+        sender is the kind of bug that shows up as a frozen window weeks later.
+        """
+        if result.ok:
+            self._error = None
+        else:
+            self._error = SHORT_ERRORS.get(result.code) or FALLBACK_ERROR
+
+        if self._status is None:
+            return
+        try:
+            self._status.after(0, self._render)
+        except tk.TclError:
+            pass
+
+    def clear_error(self) -> None:
+        """Called from the main loop when the member replaces their token."""
+        self._error = None
+        self._render()
+
+    def _render(self) -> None:
+        if self._status is None:
+            return
+        try:
+            self._status.configure(text=self._idle_text())
+
+            if self._error_label is None:
+                return
+            if self._error:
+                self._error_label.configure(text=self._error)
+                self._error_label.grid(row=1, column=0, columnspan=3, sticky=tk.W)
+            else:
+                self._error_label.grid_remove()
+        except tk.TclError:
+            pass
+
     def sync(self) -> None:
         """Match the row to the current settings."""
-        self.set_status(self._idle_text())
+        self._render()
 
         if self._button is None:
             return
@@ -75,16 +156,18 @@ class AppPanel:
         settings = self._controller.settings
         if settings.is_stealthed():
             return "Stealth"
-        if settings.is_local():
-            return "Online (Local)"
+        if settings.is_dev_endpoint():
+            return "Online (Dev)"
         return "Online"
 
     def set_status(self, text: str) -> None:
-        if self._status is not None:
-            try:
-                self._status.configure(text=text)
-            except tk.TclError:
-                pass
+        """Transient text from the debug window; errors have their own row."""
+        if self._status is None:
+            return
+        try:
+            self._status.configure(text=text)
+        except tk.TclError:
+            pass
 
     def open_debug(self) -> None:
         if self._window is not None and self._window.winfo_exists():
@@ -124,7 +207,6 @@ class DebugWindow(tk.Toplevel):
         self._system = tk.StringVar(value="Shinrarta Dezhra")
         self._station = tk.StringVar(value="Jameson Memorial")
         # Off by default: a debug send goes to the debug channel unless asked.
-        self._live = tk.BooleanVar(value=False)
 
         row = 0
         ttk.Label(self, text="Event").grid(row=row, column=0, sticky=tk.W, padx=8, pady=4)
@@ -167,12 +249,6 @@ class DebugWindow(tk.Toplevel):
         ttk.Button(buttons, text="Send", command=self._send).pack(
             side=tk.LEFT, padx=(6, 0)
         )
-        ttk.Checkbutton(
-            buttons,
-            text="Live channel",
-            variable=self._live,
-            command=self._refresh_target,
-        ).pack(side=tk.LEFT, padx=(12, 0))
         self._target = ttk.Label(buttons, text="")
         self._target.pack(side=tk.RIGHT)
         row += 1
@@ -211,7 +287,7 @@ class DebugWindow(tk.Toplevel):
 
     def _destination(self) -> str:
         url = self._controller.sender.transport.url() or "no API URL set"
-        return "{0}  [{1}]".format(url, "LIVE" if self._live.get() else "debug")
+        return "{0}  [debug]".format(url)
 
     def _refresh_target(self) -> None:
         self._target.configure(text=self._destination())
@@ -236,9 +312,9 @@ class DebugWindow(tk.Toplevel):
             entry,
             self._system.get().strip(),
             self._station.get().strip(),
-            # Unticking "Live channel" keeps the payload flagged as a test, so
+            # Always flagged as a test, so the site routes it to the debug
             # the site routes it to the debug channel instead of the real one.
-            test=not self._live.get(),
+            test=True,
         )
 
         if not built and not quiet:
@@ -278,6 +354,12 @@ class DebugWindow(tk.Toplevel):
             self._controller.sender.submit(item, on_result=self._on_result)
 
     def _on_result(self, result) -> None:
+        # A debug send is still a send: a token the site refuses fails here for
+        # exactly the reason it will fail on a real event, so the main window
+        # and the settings page hear about it too rather than the news staying
+        # inside a window that gets closed.
+        self._controller.note_delivery(result)
+
         # Runs on the delivery thread; hop back before touching any widget.
         def apply():
             lines = [

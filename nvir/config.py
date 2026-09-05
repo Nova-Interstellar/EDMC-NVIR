@@ -9,12 +9,12 @@ The only per-commander settings are the squadron token and which categories to
 broadcast; those live in `settings.py`.
 """
 
-PLUGIN_NAME = "NVIR"
+PLUGIN_NAME = "NVIR Uplink"
 PLUGIN_TITLE = "Nova Interstellar Uplink"
 # For the main EDMC window, where the row shares a narrow column with the
 # commander, ship and system fields.
 PLUGIN_TITLE_SHORT = "NVIR Uplink"
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.5.0"
 
 # --- Repository --------------------------------------------------------------
 # One constant so a repo rename is a single edit. GitHub redirects the old path
@@ -47,7 +47,16 @@ API_BASE_URL = "https://nvir.vercel.app"
 
 API_EVENTS_PATH = "/api/squadron/events"
 
-DEFAULT_LOCALHOST_URL = "http://localhost:3000"
+# Where a member generates their token. Resolved against whichever site the
+# plugin is pointed at, so a development build links to that site's profile
+# rather than sending someone to production for a token that will not work
+# there — tokens live in a database, and each deployment has its own.
+PROFILE_PATH = "/profile"
+
+# Where a development build sends is typed in by whoever is developing, and
+# defaults to nothing. A shipped default would put one deployment's hostname in
+# the source of a repository that may go public, and it would be wrong for
+# everyone who is not the person who chose it.
 
 USER_AGENT = f"EDMC-NVIR/{PLUGIN_VERSION}"
 HTTP_TIMEOUT = 10
@@ -73,13 +82,17 @@ KEY_CATEGORY = "nvir_category_{0}"
 # Debug-only, and only honoured while DEBUG is on: a build shipped with
 # DEBUG = False ignores whatever these hold.
 KEY_DEBUG_MODE = "nvir_debug_mode"
-KEY_USE_LOCALHOST = "nvir_use_localhost"
-KEY_LOCALHOST_URL = "nvir_localhost_url"
+KEY_DEV_API_URL = "nvir_dev_api_url"
+
+# The endpoint used to live behind a second "use localhost" checkbox. Debug mode
+# now implies it, so the old value is carried across once and the key dropped.
+LEGACY_DEV_URL_KEY = "nvir_localhost_url"
 
 # Settings retired as the plugin moved to the squadron API. Any value still
 # stored under these keys is deleted on load, so no webhook URL or hand-typed
 # endpoint lingers in a member's EDMC config.
 RETIRED_KEYS = (
+    "nvir_use_localhost",
     "nvir_webhook_url",
     "nvir_option_trade.sales",
     "nvir_option_trade.ranks",
@@ -109,6 +122,6 @@ def squadron_url() -> str:
 
     A debug send goes here too. `test` on the payload tells the site to post it
     to the debug Discord channel; it does not change where the plugin posts.
-    Redirecting the plugin itself is what the localhost toggle is for.
+    Redirecting the plugin itself is what Debug mode's endpoint field does.
     """
     return API_BASE_URL

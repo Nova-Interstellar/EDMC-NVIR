@@ -17,11 +17,18 @@ are ever sent. Nothing else leaves your machine.
    In EDMC you can get there with **File → Settings → Plugins → Open**.
 
 2. Restart EDMC.
-3. Open **File → Settings → NVIR Uplink** and paste the squadron token. Ask a
-   squadron officer for it.
+3. Sign in at [nvir.vercel.app](https://nvir.vercel.app) with Discord, open
+   your profile, and generate an uplink token.
+4. Open **File → Settings → NVIR Uplink** and paste it in. The settings page
+   also links straight to your profile if you need to get back there.
 
 That is the whole setup. There is no URL to configure — the plugin already
 knows where to send things.
+
+The token is yours alone. It is shown once and stored only as a hash, so nobody
+— including an officer — can read it back; if you lose it, generate another and
+the old one stops working. You need to be a member of the squadron Discord to
+have a profile at all.
 
 Requires EDMC 6.x.
 
@@ -31,7 +38,7 @@ Requires EDMC 6.x.
 
 | Setting | What it does |
 | --- | --- |
-| **Squadron member token** | Identifies you to the squadron site. Without it nothing is sent. |
+| **Squadron member token** | Identifies you to the squadron site. Without it nothing is sent. Generate it on your NVIR profile — the link is on this page. |
 | **Stealth mode** | Broadcasts nothing at all. Your category choices are remembered, just switched off. |
 | **Broadcast** | Pick which kinds of moment you are happy to share. |
 
@@ -65,6 +72,32 @@ Two details worth knowing:
 - **Restarting EDMC will not re-post your day.** Only things that happen while
   the plugin is running are sent.
 
+## When something is wrong
+
+The row in EDMC's main window is where failures show up. It reads **Online**
+while everything is fine, and turns red with the reason when a send is refused:
+
+| It says | What happened |
+| --- | --- |
+| **Token not recognised** | The token was deleted or never existed. Generate a new one. |
+| **Token revoked** | An officer revoked it. Generate a new one. |
+| **Uplink paused by NVIR** | Your token is real but suspended. An officer can lift it. |
+| **NVIR site unreachable** | Our problem, not yours. It keeps trying. |
+
+The first three **stop the uplink** until you paste a new token — there is no
+point asking the site about a credential it has already rejected, and doing so
+on every jump would bury anything else in the log. Anything still queued is
+dropped rather than saved up, so replacing a token does not flush an evening of
+stale events into the channel.
+
+The last one is not treated as your problem at all. A site outage keeps
+retrying and never asks you to change anything, which is the distinction the
+whole thing turns on: if the squadron site is having a bad minute, your token
+was never wrong.
+
+The settings page shows the same failure in full, next to the field that fixes
+it.
+
 ## Privacy
 
 The plugin holds no Discord webhook, so it cannot post to the channel directly
@@ -76,8 +109,13 @@ nothing you send is posted; tell an officer and they can add a mapping.
 
 ## Troubleshooting
 
-**Nothing is posting.** Check the token in **File → Settings → NVIR Uplink**, and that
-Stealth mode is off and the box for that channel is ticked.
+**Nothing is posting.** Look at the plugin's row in the main window first — if
+something was refused, it says so there. Otherwise check that Stealth mode is
+off and the box for that channel is ticked.
+
+**It posted, then stopped.** Almost always a revoked or replaced token; the row
+will say. Pasting a new one starts it again immediately, without restarting
+EDMC.
 
 **Something looks wrong.** EDMC's log has the detail —
 **File → Settings → Plugins → Open Log Folder**, and search for `NVIR`.
